@@ -1,3 +1,15 @@
+#### v0.19.2 (2021-06)
+
+- [fix] package nazaatomic: arm32编译失败
+
+#### v0.19.1 (2021-06)
+
+- [feat] package nazasync: 优化Mutex的实现，更方便的定位Mutex的问题
+
+#### v0.19.0 (2021-06)
+
+- [refactor] 重构naza整个项目的命名规则，见 https://github.com/q191201771/lal/issues/87
+
 #### v0.18.5 (2021-04)
 
 - [feat] nazalog: 新增日志级别LevelTrace，目前已有trace, debug, info, warn, error, fatal, panic
