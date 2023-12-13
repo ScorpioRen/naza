@@ -1,7 +1,7 @@
 /pkg/websocket
-/pkg/nazabytes/
 /pkg/tag
 /pkg/nazatime
+/pkg/congestion_control
 
 /playground
 /playground/cc
@@ -9,7 +9,10 @@
 /demo/samefile
 /demo/time
 /demo/temp
-/demo/chartbar
+/demo/analyse_git_log
+/demo/analyse_wireshark_plain_txt_dissection
+/demo/disksweeper
+/demo/diskbackup
 
 /.idea
 /.trash
@@ -23,3 +26,4 @@ tmp
 profile.out*
 profile*.pdf
 *.test
+*.h264

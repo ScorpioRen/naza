@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/q191201771/naza/pkg/mock"
+
 	"github.com/q191201771/naza/pkg/nazalog"
 
 	"github.com/q191201771/naza/pkg/fake"
@@ -121,20 +123,51 @@ func TestNew(t *testing.T) {
 }
 
 func TestRotate(t *testing.T) {
-	err := nazalog.Init(func(option *nazalog.Option) {
+	// 按天翻转
+	l, err := nazalog.New(func(option *nazalog.Option) {
 		option.Level = nazalog.LevelInfo
-		option.Filename = "/tmp/nazalogtest/ccc.log"
+		option.Filename = "/tmp/nazalogtest/daily.log"
 		option.IsToStdout = false
 		option.IsRotateDaily = true
-
 	})
 	assert.Equal(t, nil, err)
-	nazalog.Info("aaa")
-	fake.WithFakeTimeNow(func() time.Time {
-		return time.Now().Add(48 * time.Hour)
-	}, func() {
-		nazalog.Info("bbb")
+	l.Info("IsRotateDaily 1")
+	l.Info("IsRotateDaily 2")
+	l.Sync()
+
+	now := time.Now()
+	nazalog.Clock = mock.NewFakeClock()
+	nazalog.Clock.Set(now.Add(25 * time.Hour))
+	l.Info("IsRotateDaily 3")
+	l.Info("IsRotateDaily 4")
+	l.Sync()
+
+	nazalog.Clock = mock.NewStdClock()
+
+	l, err = nazalog.New(func(option *nazalog.Option) {
+		option.Level = nazalog.LevelInfo
+		option.Filename = "/tmp/nazalogtest/hourly.log"
+		option.IsToStdout = false
+		option.IsRotateHourly = true
 	})
+	assert.Equal(t, nil, err)
+	l.Info("IsRotateHourly 1")
+	l.Info("IsRotateHourly 2")
+	l.Sync()
+
+	now = time.Now()
+	nazalog.Clock = mock.NewFakeClock()
+	nazalog.Clock.Set(now.Add(1 * time.Hour))
+	l.Info("IsRotateHourly 3")
+	l.Info("IsRotateHourly 4")
+	l.Sync()
+	nazalog.Clock.Set(now.Add(2 * time.Hour))
+	l.Info("IsRotateHourly 5")
+	l.Info("IsRotateHourly 6")
+	l.Sync()
+
+	nazalog.Clock = mock.NewStdClock()
+	//_ = os.RemoveAll("/tmp/nazalogtest")
 }
 
 func TestPanic(t *testing.T) {
@@ -235,6 +268,7 @@ func TestAssert(t *testing.T) {
 		option.AssertBehavior = nazalog.AssertError
 	})
 	nazalog.Assert(nil, 1)
+	nazalog.Assert(nil, 1, "I guess this could be failed.", "I guess so")
 
 	_ = nazalog.Init(func(option *nazalog.Option) {
 		option.AssertBehavior = nazalog.AssertFatal
@@ -254,6 +288,7 @@ func TestAssert(t *testing.T) {
 
 	l, _ := nazalog.New()
 	l.Assert(nil, 1)
+	l.Assert(nil, 1, "I guess this could be failed.", "I guess so")
 
 	l, _ = nazalog.New(func(option *nazalog.Option) {
 		option.AssertBehavior = nazalog.AssertFatal
@@ -387,6 +422,46 @@ func TestLogger_GetOption(t *testing.T) {
 	})
 	o = nazalog.GetOption()
 	assert.Equal(t, nazalog.LevelDebug, o.Level)
+}
+
+func TestHook(t *testing.T) {
+	l, _ := nazalog.New(func(option *nazalog.Option) {
+		option.HookBackendOutFn = func(level nazalog.Level, line []byte) {
+			fmt.Printf("%s", string(line))
+			assert.Equal(t, nazalog.LevelDebug, level)
+		}
+	})
+	l.Debug("hookme")
+
+	l2, _ := nazalog.New()
+	l2.Init(func(option *nazalog.Option) {
+		option.HookBackendOutFn = func(level nazalog.Level, line []byte) {
+			fmt.Printf("%s", string(line))
+			assert.Equal(t, nazalog.LevelInfo, level)
+		}
+	})
+	l2.Infof("hookme %d", 2)
+}
+
+func TestOptionIsToStdout(t *testing.T) {
+	nazalog.Debugf("expected see me 1")
+	nazalog.Init(func(option *nazalog.Option) {
+		option.IsToStdout = false
+	})
+	nazalog.Debugf("expected not see me 1")
+	nazalog.Init(func(option *nazalog.Option) {
+		option.IsToStdout = true
+	})
+	nazalog.Debugf("expected see me 2")
+
+	l1, _ := nazalog.New(func(option *nazalog.Option) {
+		option.IsToStdout = false
+	})
+	l1.Debugf("expected not see me 2")
+
+	l2, _ := nazalog.New(func(option *nazalog.Option) {
+	})
+	l2.Debugf("expected see me 3")
 }
 
 func BenchmarkNazaLog(b *testing.B) {

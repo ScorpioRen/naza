@@ -6,6 +6,7 @@
 //
 // Author: Chef (191201771@qq.com)
 
+//go:build go1.13
 // +build go1.13
 
 package nazaerrors
@@ -27,4 +28,7 @@ func TestWrap(t *testing.T) {
 	err = Wrap(err)
 	nazalog.Debugf("%+v", err)
 	assert.Equal(t, true, errors.Is(err, io.EOF))
+
+	err = Wrap(io.EOF, "aaa")
+	nazalog.Debugf("%+v", err)
 }

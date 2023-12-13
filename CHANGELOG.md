@@ -1,3 +1,146 @@
+#### v0.30.48 (2023-07)
+
+- [fix] connection: not working set ModWriteChanSize
+
+#### v0.30.12 (2023-04)
+
+- [feat] taskpool: 增加Dispose方法，用于完全释放池内资源，包括所有协程
+- [fix] connection: ModWriteChanSize为0时不应该开启异步发送协程
+
+#### v0.30.11 (2023-03)
+
+- [feat] nazalog: 增加Option.IsRotateHourly，日志可以按小时翻滚
+
+#### v0.30.10 (2023-02)
+
+- [fix] nazalog: 修复IsToStdout设置为false不生效的bug
+
+#### v0.30.9 (2023-02)
+
+- [feat] nazalog: 增加Option.HookBackendOutFn，业务方可以注册回调拿到最终的日志内存数据
+
+#### v0.30.8 (2022-10)
+
+- [opt] nazanet: UdpConnection当RAddr没有配置时，Write函数使用接收数据时的对端地址
+
+#### v0.30.7 (2022-09)
+
+- [opt] nazahttp: 解析first line失败时，返回的错误信息更完整
+
+#### v0.30.6 (2022-09)
+
+- [feat] nazanet: UdpConnection增加修改socket读写缓存区的函数
+
+#### v0.30.5 (2022-08)
+
+- [feat] bele: 增加小端uint16的一些函数
+
+#### v0.30.4 (2022-08)
+
+- [feat] nazasync: 增加一个竞争失败时非阻塞的Once
+
+#### v0.30.3 (2022-06)
+
+- [opt] nazabytes::Buffer: (1) NewBuffer的initCap参数支持用0初始化 (2) Grow函数扩容前的大小如果0则不打印debug日志 (3) 增加ResetAndFree函数，重置并不再持有底层内存块
+
+#### v0.30.2 (2022-03)
+
+- [fix] nazabytes: 修复扩容时bug
+- [feat] nazajson: 增加序列化、反序列化json文件的函数
+
+#### v0.30.1 (2022-03)
+
+- [opt] nazabytes: 优化Buffer的扩容逻辑
+- [fix] nazareflect: 修复两个无符号整型比较时的bug
+
+#### v0.30.0 (2022-02)
+
+- [feat] nazalog: 增加Init接口函数
+- [test] filesystemlayer: 测试内存模式
+- [chore] CI: 增加定时任务，增加测试覆盖率
+- [doc] 更新README的徽章
+
+#### v0.29.0 (2022-01)
+
+- [fix] nazalog: windows 日志无法按天翻滚
+- [feat] chartbar: 可配置隐藏Name和Num
+- [opt] chartbar: 都是整数则不显示小数部分
+- [opt] chartbar: 都是小整数则按原始值绘制
+
+#### v0.28.2 (2021-12)
+
+- [opt] nazahttp: 增强兼容性，解析http header时，存在没有冒号的行。把没有冒号的行内容判定为属于上一个header的value
+
+#### v0.28.1 (2021-12)
+
+- [feat] mock: 增加Sleep函数
+- [fix] nazabytes: 修复Write函数错误写入的bug
+
+#### v0.28.0 (2021-11)
+
+- [feat] dataops: 增加SliceAllOf和SliceMinMax函数
+- [refactor] nazabytes: 删除package nazastring，部分内容重构后移入package nazabytes中
+
+#### v0.27.2 (2021-11)
+
+- [fix] nazahttp: 修复ReadHttpHeader读取不完整就返回错误的bug
+- [fix] nazahttp: 增加解析http header first line的兼容性
+
+#### v0.26.0 (2021-11)
+
+- [feat] nazaerrors: Wrap函数可填入补充信息
+- [refactor] nazahttp: 丰富error信息
+
+#### v0.25.0 (2021-11)
+
+- [feat] package nazabytes: 新增包，提供Buffer struct
+- [feat] package dataops: 新增包，用于处理数据，比如切片类型转换，计数等等
+- [feat] package chartbar: 支持负数; 支持只绘制容器中的部分元素; 支持配置柱状图样式
+- [refactor] 删除pkg/fake/time.go
+
+#### v0.24.0 (2021-11)
+
+- [feat] package mock: 新增的包，目前可以模拟标准库中的time.Now, time.NewTimer
+- [refactor] 移除package/ic
+
+#### v0.23.0 (2021-10)
+
+- [refactor] package nazacolor: color包重命名为nazacolor
+- [fix] package chartbar: 解决中文对齐问题
+- [chore] min golang version 1.13 -> 1.14
+
+#### v0.22.0 (2021-10)
+
+- [feat] package chartbar: 可外部指定排序方式
+
+#### v0.21.1 (2021-10)
+
+- [feat] package connection: 增加Writev函数
+
+#### v0.21.0 (2021-10)
+
+- [feat] package color: 新包，控制台打印颜色相关
+- [refactor] package nazalog: 颜色相关的改为依赖package color
+
+#### v0.20.2 (2021-09)
+
+- [feat] package nazajson: 新增函数CollectNotExistFields，用于收集json中所有不存在的字段
+- [feat] package log: 暴露一些ASCII打印颜色的字符串常量
+
+#### v0.20.1 (2021-08)
+
+- [feat] package nazabits: 新增func ReadUeGolomb和ReadSeGolomb，分别读取无符号和有符号哥伦布编码数据
+- [feat] package nazalog: Assert函数可选择填入描述信息
+- [fix] package connection: 先关闭net.Close再发送通知消息至channel
+
+#### v0.20.0 (2021-07)
+
+- [feat] package nazahttp: header支持重复键值
+
+#### v0.19.3 (2021-07)
+
+- [feat] package chartbar: 新的package，用于在控制台绘制ascii柱状图
+
 #### v0.19.2 (2021-06)
 
 - [fix] package nazaatomic: arm32编译失败

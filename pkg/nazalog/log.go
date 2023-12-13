@@ -17,12 +17,18 @@ import (
 	"sync"
 	"time"
 
+	"github.com/q191201771/naza/pkg/mock"
+
+	"github.com/q191201771/naza/pkg/nazacolor"
+
 	"github.com/q191201771/naza/pkg/nazareflect"
 
 	"github.com/q191201771/naza/pkg/fake"
 )
 
 var _ Logger = new(logger)
+
+var Clock = mock.NewStdClock()
 
 const (
 	levelTraceString = "TRACE "
@@ -33,13 +39,13 @@ const (
 	levelFatalString = "FATAL "
 	levelPanicString = "PANIC "
 
-	levelTraceColorString = "\033[22;32mTRACE\033[0m "
-	levelDebugColorString = "\033[22;34mDEBUG\033[0m "
-	levelInfoColorString  = "\033[22;36m INFO\033[0m "
-	levelWarnColorString  = "\033[22;33m WARN\033[0m "
-	levelErrorColorString = "\033[22;31mERROR\033[0m "
-	levelFatalColorString = "\033[22;31mFATAL\033[0m " // 颜色和 error 级别一样
-	levelPanicColorString = "\033[22;31mPANIC\033[0m " // 颜色和 error 级别一样
+	levelTraceColorString = nazacolor.SimplePrefixGreen + levelTraceString + nazacolor.SimpleSuffix
+	levelDebugColorString = nazacolor.SimplePrefixBlue + levelDebugString + nazacolor.SimpleSuffix
+	levelInfoColorString  = nazacolor.SimplePrefixCyan + levelInfoString + nazacolor.SimpleSuffix
+	levelWarnColorString  = nazacolor.SimplePrefixYellow + levelWarnString + nazacolor.SimpleSuffix
+	levelErrorColorString = nazacolor.SimplePrefixRed + levelErrorString + nazacolor.SimpleSuffix
+	levelFatalColorString = nazacolor.SimplePrefixRed + levelFatalString + nazacolor.SimpleSuffix
+	levelPanicColorString = nazacolor.SimplePrefixRed + levelPanicString + nazacolor.SimpleSuffix
 )
 
 var (
@@ -74,7 +80,7 @@ type core struct {
 	m             sync.Mutex
 	fp            *os.File
 	console       *os.File
-	buf           bytes.Buffer
+	buf           bytes.Buffer // TODO(chef): [refactor] 是否需要使用nazabytes.Buffer
 	currRoundTime time.Time
 }
 
@@ -165,18 +171,23 @@ func (l *logger) Panicln(v ...interface{}) {
 	panic(fmt.Sprint(v...))
 }
 
-func (l *logger) Assert(expected interface{}, actual interface{}) {
+func (l *logger) Assert(expected interface{}, actual interface{}, extInfo ...string) {
 	if !nazareflect.Equal(expected, actual) {
-		err := fmt.Sprintf("assert failed. excepted=%+v, but actual=%+v", expected, actual)
+		var v string
+		if len(extInfo) == 0 {
+			v = fmt.Sprintf("assert failed. excepted=%+v, but actual=%+v", expected, actual)
+		} else {
+			v = fmt.Sprintf("assert failed. excepted=%+v, but actual=%+v, extInfo=%s", expected, actual, extInfo)
+		}
 		switch l.core.option.AssertBehavior {
 		case AssertError:
-			l.Out(LevelError, 2, err)
+			l.Out(LevelError, 2, v)
 		case AssertFatal:
-			l.Out(LevelFatal, 2, err)
+			l.Out(LevelFatal, 2, v)
 			fake.Os_Exit(1)
 		case AssertPanic:
-			l.Out(LevelPanic, 2, err)
-			panic(err)
+			l.Out(LevelPanic, 2, v)
+			panic(v)
 		}
 	}
 }
@@ -186,7 +197,7 @@ func (l *logger) Out(level Level, calldepth int, s string) {
 		return
 	}
 
-	now := fake.Time_Now()
+	now := Clock.Now()
 
 	var file string
 	var line int
@@ -252,18 +263,53 @@ func (l *logger) Out(level Level, calldepth int, s string) {
 
 	// 输出至日志文件
 	if l.core.fp != nil {
-		if l.core.option.IsRotateDaily && now.Day() != l.core.currRoundTime.Day() {
-			backupName := l.core.option.Filename + "." + l.core.currRoundTime.Format("20060102")
-			if err := os.Rename(l.core.option.Filename, backupName); err == nil {
-				_ = l.core.fp.Close()
-				l.core.fp, _ = os.Create(l.core.option.Filename)
+
+		// 同时满足条件时，翻滚一次就够了
+		rotateFlag := false
+		var backupName string
+
+		if l.core.option.IsRotateHourly && now.Hour() != l.core.currRoundTime.Hour() {
+			backupName = l.core.option.Filename + "." + l.core.currRoundTime.Format("2006010215")
+			rotateFlag = true
+		}
+
+		if !rotateFlag && l.core.option.IsRotateDaily && now.Day() != l.core.currRoundTime.Day() {
+			backupName = l.core.option.Filename + "." + l.core.currRoundTime.Format("20060102")
+			rotateFlag = true
+		}
+
+		if rotateFlag {
+			err := l.core.fp.Close()
+			// 忽略关闭的错误
+			_ = err
+
+			err = os.Rename(l.core.option.Filename, backupName)
+			if err != nil {
+				// windows会走这个逻辑分支
+				// TODO(chef): 应判断具体的错误值 202302
+
+				l.core.fp, err = os.OpenFile(l.core.option.Filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+			} else {
+				l.core.fp, err = os.Create(l.core.option.Filename)
 			}
+			if err != nil {
+				_, _ = fmt.Fprintf(os.Stderr, "reopen error. err=%+v, fp=%+v, filename=%s, backupName=%s, now=%s, curr=%s",
+					err, l.core.fp, l.core.option.Filename, backupName, now.String(), l.core.currRoundTime.String())
+				return
+			}
+
 			l.core.currRoundTime = now
 		}
+
 		_, _ = l.core.fp.Write(l.core.buf.Bytes())
 		if level == LevelFatal || level == LevelPanic {
 			_ = l.core.fp.Sync()
 		}
+	}
+
+	// 输出至hook
+	if l.core.option.HookBackendOutFn != nil {
+		l.core.option.HookBackendOutFn(level, l.core.buf.Bytes())
 	}
 
 	l.core.m.Unlock()
@@ -299,36 +345,46 @@ func (l *logger) GetOption() Option {
 	return l.core.option
 }
 
-func newLogger(modOptions ...ModOption) (*logger, error) {
+func (l *logger) Init(modOptions ...ModOption) error {
 	var err error
 
-	l := &logger{
-		core: &core{
-			currRoundTime: time.Now(),
-		},
-	}
+	l.core.currRoundTime = time.Now()
 	l.core.option = defaultOption
 
 	for _, fn := range modOptions {
 		fn(&l.core.option)
 	}
 
-	if err := validate(l.core.option); err != nil {
-		return nil, err
+	if err = validate(l.core.option); err != nil {
+		return err
 	}
 	if l.core.option.Filename != "" {
 		dir := filepath.Dir(l.core.option.Filename)
 		if err = os.MkdirAll(dir, 0777); err != nil {
-			return nil, err
+			return err
 		}
 		if l.core.fp, err = os.OpenFile(l.core.option.Filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	if l.core.option.IsToStdout {
 		l.core.console = os.Stdout
+	} else {
+		l.core.console = nil
 	}
 
+	return nil
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+
+func newLogger(modOptions ...ModOption) (*logger, error) {
+	l := &logger{
+		core: &core{},
+	}
+	if err := l.Init(modOptions...); err != nil {
+		return nil, err
+	}
 	return l, nil
 }
 

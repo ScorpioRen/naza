@@ -6,9 +6,7 @@
 //
 // Author: Chef (191201771@qq.com)
 
-// package connection
-//
-// 注意，这个package还在开发中
+// Package connection
 //
 // 对 net.Conn 接口的二次封装，目的有两个：
 // 1. 在流媒体传输这种特定的长连接场景下提供更方便、高性能的接口
@@ -37,37 +35,78 @@ var (
 )
 
 type Connection interface {
-	// 包含interface net.Conn的所有方法
-	// Read
+	// ----- net.Conn interface ----------------------------------------------------------------------------------------
+	//
+	// 注意，如果没有特别说明，函数的语义和 net.Conn 相同
+	//
+
+	// Read ...
+	Read(b []byte) (n int, err error)
+
 	// Write
-	// Close
-	// LocalAddr
-	// RemoteAddr
-	// SetDeadline
-	// SetReadDeadline
-	// SetWriteDeadline
-	net.Conn
+	//
+	// @return n 发送成功的大小
+	//           注意，如果设置了 Option.WriteChanSize 做异步发送，那么`n`恒等于len(`b`)
+	//
+	Write(b []byte) (n int, err error)
+
+	// Close 允许调用多次
+	//
+	Close() error
+
+	LocalAddr() net.Addr
+	RemoteAddr() net.Addr
+	SetDeadline(t time.Time) error
+	SetReadDeadline(t time.Time) error
+	SetWriteDeadline(t time.Time) error
+
+	// -----------------------------------------------------------------------------------------------------------------
+
+	// Writev 发送多块不连续的内存块时使用
+	//
+	// 当有多块不连续的内存块需要发送时，调用 Writev 在某些平台性能会优于以下做法：
+	// 1. 多次调用Write
+	// 2. 将多块内存块拷贝拼接成一块内存块后调用Write
+	// 原因是减少了系统调用以及内存拷贝（还有可能有内存管理）的开销
+	//
+	// 注意，如果需要发送的是一块连续的内存块，建议使用 Write 发送
+	//
+	Writev(b net.Buffers) (n int, err error)
 
 	ReadAtLeast(buf []byte, min int) (n int, err error)
 	ReadLine() (line []byte, isPrefix bool, err error) // 只有设置了ReadBufSize才可以使用这个方法
 
+	// Flush
+	//
 	// 如果使用了bufio写缓冲，则将缓冲中的数据发送出去
 	// 如果使用了channel异步发送，则阻塞等待，直到之前channel中的数据全部发送完毕
+	//
 	// 一般在Close前，想要将剩余数据发送完毕时调用
+	//
 	Flush() error
 
-	// 阻塞直到连接关闭或发生错误
+	// Done 阻塞直到连接关闭或发生错误
+	//
+	// 注意，向上层严格保证，消息发送后，后续Read，Write等调用都将失败
+	//
+	// 注意，向上层严格保证，消息只发送一次
+	//
 	// @return 返回nil则是本端主动调用Close关闭
+	//
 	Done() <-chan error
 
+	// ModWriteChanSize Modxxx
+	//
 	// TODO chef: 这几个接口是否不提供
 	// Mod类型函数不加锁，需要调用方保证不发生竞态调用
+	//
+	// ModWriteChanSize 只允许在初始化时为0的前提下调用
 	ModWriteChanSize(n int)
 	ModWriteBufSize(n int)
 	ModReadTimeoutMs(n int)
 	ModWriteTimeoutMs(n int)
 
-	// 连接上读取和发送的字节总数。
+	// GetStat 连接上读取和发送的字节总数。
 	// 注意，如果是异步发送，发送字节统计的是调用底层write的值，而非上层调用Connection发送的值
 	// 也即不包含Connection中的发送缓存部分，但是可能包含内核socket发送缓冲区的值。
 	GetStat() Stat
@@ -160,12 +199,14 @@ type wMsgType int
 const (
 	_ wMsgType = iota
 	wMsgTypeWrite
+	wMsgTypeWritev
 	wMsgTypeFlush
 )
 
 type wMsg struct {
-	t wMsgType
-	b []byte
+	t  wMsgType
+	b  []byte
+	bs net.Buffers
 }
 
 type connection struct {
@@ -189,6 +230,10 @@ func (c *connection) ModWriteChanSize(n int) {
 	if c.option.WriteChanSize > 0 {
 		panic(ErrConnectionPanic)
 	}
+	if n == 0 {
+		return
+	}
+
 	c.option.WriteChanSize = n
 	c.wChan = make(chan wMsg, n)
 	c.flushDoneChan = make(chan struct{}, 1)
@@ -295,6 +340,30 @@ func (c *connection) Write(b []byte) (n int, err error) {
 	return c.write(b)
 }
 
+func (c *connection) Writev(b net.Buffers) (n int, err error) {
+	if c.closedFlag.Load() {
+		return 0, ErrClosedAlready
+	}
+	if c.option.WriteChanSize > 0 {
+		for _, v := range b {
+			n += len(v)
+		}
+		switch c.option.WriteChanFullBehavior {
+		case WriteChanFullBehaviorBlock:
+			c.wChan <- wMsg{t: wMsgTypeWritev, bs: b}
+			return n, nil
+		case WriteChanFullBehaviorReturnError:
+			select {
+			case c.wChan <- wMsg{t: wMsgTypeWritev, bs: b}:
+				return n, nil
+			default:
+				return 0, ErrWriteChanFull
+			}
+		}
+	}
+	return c.writev(b)
+}
+
 func (c *connection) Flush() error {
 	if c.closedFlag.Load() {
 		return ErrClosedAlready
@@ -372,6 +441,24 @@ func (c *connection) write(b []byte) (n int, err error) {
 	return n, err
 }
 
+func (c *connection) writev(b net.Buffers) (n int, err error) {
+	if c.option.WriteTimeoutMs > 0 {
+		err = c.SetWriteDeadline(time.Now().Add(time.Duration(c.option.WriteTimeoutMs) * time.Millisecond))
+		if err != nil {
+			c.close(err)
+			return 0, err
+		}
+	}
+	var n64 int64
+	n64, err = b.WriteTo(c.w)
+	if err != nil {
+		c.close(err)
+	}
+	n = int(n64)
+	c.stat.WroteBytesSum.Add(uint64(n))
+	return n, err
+}
+
 func (c *connection) runWriteLoop() {
 	for {
 		select {
@@ -382,6 +469,10 @@ func (c *connection) runWriteLoop() {
 			switch msg.t {
 			case wMsgTypeWrite:
 				if _, err := c.write(msg.b); err != nil {
+					return
+				}
+			case wMsgTypeWritev:
+				if _, err := c.writev(msg.bs); err != nil {
 					return
 				}
 			case wMsgTypeFlush:
@@ -420,9 +511,12 @@ func (c *connection) close(err error) {
 		if c.option.WriteChanSize > 0 {
 			c.exitChan <- struct{}{}
 		}
-		c.doneChan <- err
+
+		// 注意，先Close后再发送消息，保证消息发送前，已经Close掉了
 		_ = c.Conn.Close()
-		// 如果使用了wChan，并不关闭它，避免竞态条件下connection继续使用它造成问题。让它随connection对象释放。
+		c.doneChan <- err
+
+		// 注意，如果使用了wChan，并不关闭它，避免竞态条件下connection继续使用它造成问题。让它随connection对象释放。
 	})
 }
 

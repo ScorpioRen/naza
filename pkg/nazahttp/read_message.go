@@ -10,6 +10,7 @@ package nazahttp
 
 import (
 	"io"
+	"net/http"
 	"strconv"
 )
 
@@ -23,7 +24,7 @@ type HttpMsgCtx struct {
 	ReqMethodOrRespVersion string
 	ReqUriOrRespStatusCode string
 	ReqVersionOrRespReason string
-	Headers                map[string]string
+	Headers                http.Header
 	Body                   []byte
 }
 
@@ -31,7 +32,7 @@ type HttpReqMsgCtx struct {
 	Method  string
 	Uri     string
 	Version string
-	Headers map[string]string
+	Headers http.Header
 	Body    []byte
 }
 
@@ -39,7 +40,7 @@ type HttpRespMsgCtx struct {
 	Version    string
 	StatusCode string
 	Reason     string
-	Headers    map[string]string
+	Headers    http.Header
 	Body       []byte
 }
 
@@ -69,7 +70,10 @@ func ReadHttpResponseMessage(r HttpReader) (ctx HttpRespMsgCtx, err error) {
 	return
 }
 
+// ReadHttpMessage
+//
 // 注意，如果HTTP Header中不包含`Content-Length`，则不会读取HTTP Body，并且err返回值为nil
+//
 func ReadHttpMessage(r HttpReader) (ctx HttpMsgCtx, err error) {
 	var requestLine string
 	requestLine, ctx.Headers, err = ReadHttpHeader(r)
@@ -81,8 +85,8 @@ func ReadHttpMessage(r HttpReader) (ctx HttpMsgCtx, err error) {
 		return ctx, err
 	}
 
-	contentLength, ok := ctx.Headers[HeaderFieldContentLength]
-	if !ok {
+	contentLength := ctx.Headers.Get(HeaderFieldContentLength)
+	if len(contentLength) == 0 {
 		return ctx, nil
 	}
 	cl, err := strconv.Atoi(contentLength)
